@@ -1,0 +1,25 @@
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:mysql://host.docker.internal:3306/survey_db?createDatabaseIfNotExist=true
+    username: root
+    password: 12345678
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: survey-client
+            client-secret: J45YXav67pw2827ClWPz6QYJCtjk1tJcfsxyzWxjZOZ6zbcKjidN9aDwrFjCmovkGC8KWcMeM9ZPz4dVb9lsZj
+            scope: openid, profile
+            authorization-grant-type: authorization_code
+        provider:
+          keycloak:
+            issuer-uri: http://host.docker.internal:8080/realms/survey-realm
+      resourceserver:
+        jwt:
+          issuer-uri: http://host.docker.internal:8080/realms/survey-realm

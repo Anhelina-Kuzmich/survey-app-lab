@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>Система Опитувань</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-color: #f3f4f6; color: #1f2937; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1, h2 { color: #111827; margin-top: 0; }
+        input, textarea, button { width: 100%; box-sizing: border-box; margin-bottom: 15px; padding: 12px; border-radius: 6px; border: 1px solid #d1d5db; }
+        button { background-color: #4f46e5; color: white; border: none; cursor: pointer; font-weight: bold; font-size: 16px; }
+        button:hover { background-color: #4338ca; }
+        .hidden { display: none !important; }
+        .survey-card { background: #f9fafb; border: 1px solid #e5e7eb; padding: 15px; margin-bottom: 15px; border-radius: 6px; position: relative; }
+        .survey-card h3 { margin-top: 0; margin-bottom: 5px; color: #374151; }
+        .error { color: #dc2626; font-weight: bold; margin-bottom: 15px; }
+        .admin-badge { background-color: #dc2626; color: white; padding: 3px 8px; border-radius: 12px; font-size: 12px; margin-left: 10px; vertical-align: middle; }
+        .delete-btn { position: absolute; top: 15px; right: 15px; background-color: #ef4444; width: auto; padding: 5px 10px; font-size: 12px; margin: 0; }
+        .delete-btn:hover { background-color: #b91c1c; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <!-- БЛОК 1: Авторизація -->
+    <div id="login-section">
+        <h1>Вхід в систему</h1>
+        <p>Використовуйте існуючий обліковий запис Keycloak</p>
+        <div id="login-error" class="error"></div>
+        <input type="text" id="username" placeholder="Логін (напр. testuser)">
+        <input type="password" id="password" placeholder="Пароль">
+        <button onclick="login()">Увійти</button>
+    </div>
+
+    <!-- БЛОК 2: Головна панель -->
+    <div id="dashboard-section" class="hidden">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1>Вітаю, <span id="user-name"></span><span id="admin-badge" class="admin-badge hidden">ADMIN</span></h1>
+            <button onclick="logout()" style="background-color: #6b7280; width: auto; padding: 8px 15px; margin: 0;">Вийти</button>
+        </div>
+
+        <!-- Адмінська зона (прихована для звичайних юзерів) -->
+        <div id="admin-panel" class="hidden" style="background: #fee2e2; padding: 15px; border-radius: 6px; border: 1px solid #f87171; margin-bottom: 20px;">
+            <h2 style="color: #991b1b; font-size: 18px;">Створити нове опитування (Тільки для Admin)</h2>
+            <input type="text" id="new-title" placeholder="Назва опитування">
+            <textarea id="new-desc" placeholder="Опис опитування" rows="2"></textarea>
+            <button onclick="createSurvey()" style="background-color: #dc2626; margin-bottom: 0;">Створити</button>
+        </div>
+
+        <h2>Активні опитування</h2>
+        <button onclick="loadSurveys()" style="background-color: #10b981; margin-bottom: 20px;">Оновити список</button>
+        <div id="surveys-list">Тут з'являться опитування...</div>
+    </div>
+</div>
+
+<script>
+    let currentToken = '';
+    let isAdmin = false;
+
+    // Функція для розшифровки JWT-токена
+    function parseJwt(token) {
+        try {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+            return JSON.parse(jsonPayload);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function login() {
+        const params = new URLSearchParams();
+        params.append('client_id', 'survey-client');
+        params.append('grant_type', 'password');
+        params.append('username', document.getElementById('username').value);
+        params.append('password', document.getElementById('password').value);
+        params.append('client_secret', 'UOiopzZTGgeJeShkQmzwvgI2aHQEszT5Xq9rL6ks380D6RSjN4Egaub4mxTmKXFZQzuNmHAb4Vd4ZS3pwNVLw4');
+
+        try {
+            const response = await fetch('http://localhost:8080/realms/survey-realm/protocol/openid-connect/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                currentToken = data.access_token;
+
+                // Розшифровуємо токен і перевіряємо ролі
+                const tokenData = parseJwt(currentToken);
+                document.getElementById('user-name').innerText = tokenData.preferred_username;
+
+                const roles = tokenData.realm_access ? tokenData.realm_access.roles : [];
+                isAdmin = roles.includes('ADMIN');
+
+                // Налаштовуємо інтерфейс залежно від ролі
+                if (isAdmin) {
+                    document.getElementById('admin-panel').classList.remove('hidden');
+                    document.getElementById('admin-badge').classList.remove('hidden');
+                } else {
+                    document.getElementById('admin-panel').classList.add('hidden');
+                    document.getElementById('admin-badge').classList.add('hidden');
+                }
+
+                document.getElementById('login-section').classList.add('hidden');
+                document.getElementById('dashboard-section').classList.remove('hidden');
+                document.getElementById('login-error').innerText = '';
+
+                loadSurveys();
+            } else {
+                document.getElementById('login-error').innerText = 'Неправильний логін або пароль.';
+            }
+        } catch (error) {
+            document.getElementById('login-error').innerText = 'Помилка підключення до сервера авторизації.';
+        }
+    }
+
+    async function loadSurveys() {
+        try {
+            const response = await fetch('/api/surveys', {
+                headers: { 'Authorization': 'Bearer ' + currentToken }
+            });
+
+            if (response.ok) {
+                const surveys = await response.json();
+                const listDiv = document.getElementById('surveys-list');
+                listDiv.innerHTML = '';
+
+                if (surveys.length === 0) {
+                    listDiv.innerHTML = '<p style="color: #6b7280;">Опитувань поки немає.</p>';
+                    return;
+                }
+
+                surveys.forEach(s => {
+                    // Кнопка видалення додається тільки якщо юзер - адмін
+                    const deleteBtn = isAdmin ? `<button class="delete-btn" onclick="deleteSurvey(${s.id})">Видалити</button>` : '';
+
+                    listDiv.innerHTML += `
+                        <div class="survey-card">
+                            <h3>#${s.id} - ${s.title}</h3>
+                            <p style="margin-bottom: 0;">${s.description}</p>
+                            ${deleteBtn}
+                        </div>
+                    `;
+                });
+            }
+        } catch (error) {
+            console.error("Помилка завантаження", error);
+        }
+    }
+
+    async function createSurvey() {
+        const title = document.getElementById('new-title').value;
+        const desc = document.getElementById('new-desc').value;
+
+        if(!title) return alert("Введіть назву!");
+
+        const response = await fetch('/api/surveys', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + currentToken,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ title: title, description: desc })
+        });
+
+        if (response.ok) {
+            document.getElementById('new-title').value = '';
+            document.getElementById('new-desc').value = '';
+            loadSurveys();
+        } else {
+            alert("Помилка! Можливо, термін дії токена закінчився.");
+        }
+    }
+
+    async function deleteSurvey(id) {
+        if(!confirm("Точно видалити опитування #" + id + "?")) return;
+
+        const response = await fetch('/api/surveys/' + id, {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + currentToken }
+        });
+
+        if (response.ok) {
+            loadSurveys();
+        } else {
+            alert("Помилка видалення!");
+        }
+    }
+
+    function logout() {
+        currentToken = '';
+        isAdmin = false;
+        document.getElementById('login-section').classList.remove('hidden');
+        document.getElementById('dashboard-section').classList.add('hidden');
+        document.getElementById('password').value = '';
+    }
+</script>
+</body>
+</html>
